@@ -14,19 +14,6 @@ class KuGouMusic(BaseMusicPlayer):
         keywords=["酷狗", "酷狗点歌", "kg"],
     )
 
-    BASE_URL = "https://music.txqq.pro/"
-    HEADERS = {
-        "User-Agent": (
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:146.0) "
-            "Gecko/20100101 Firefox/146.0"
-        ),
-        "Accept": "application/json, text/javascript, */*; q=0.01",
-        "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
-        "X-Requested-With": "XMLHttpRequest",
-        "Origin": "https://music.txqq.pro",
-        "Referer": "https://music.txqq.pro",
-    }
-
     def __init__(self, config: PluginConfig):
         super().__init__(config)
 
@@ -36,30 +23,53 @@ class KuGouMusic(BaseMusicPlayer):
         limit: int = 5,
         extra: str | None = None,
     ) -> list[Song]:
+        # 使用酷狗音乐的搜索API
         result = await self._request(
-            url=self.BASE_URL,
-            method="POST",
+            url=f"https://songsearch.kugou.com/song_search_v2",
+            method="GET",
             data={
-                "input": keyword,
-                "filter": "name",
-                "type": "kugou",
+                "keyword": keyword,
                 "page": 1,
+                "pagesize": limit,
+                "userid": 0,
+                "clientver": "",
+                "platform": "WebFilter",
+                "filter": 2,
+                "iscorrection": 1,
+                "privilege_filter": 0,
+                "area_code": 1,
             },
-            headers=self.HEADERS,
+            headers={
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                "Referer": "https://www.kugou.com/",
+            },
         )
-        if not isinstance(result, dict) or "data" not in result:
-            logger.error(f"返回了意料之外的数据：{result}")
+
+        if not isinstance(result, dict) or result.get("error_code") != 0:
+            logger.error(f"酷狗搜索返回了意料之外的数据：{result}")
             return []
+
+        song_list = result.get("data", {}).get("lists", [])
         songs = []
-        for s in result["data"]:
+
+        for s in song_list[:limit]:
+            # 获取歌手名称
+            singers = s.get("Singers", [])
+            artists = "、".join(singer.get("name", "") for singer in singers)
+
+            # 获取歌曲ID和hash
+            song_id = s.get("Audioid", "")
+            file_hash = s.get("FileHash", "")
+
             songs.append(
                 Song(
-                    id=s.get("songid"),
-                    name=s.get("title"),
-                    artists=s.get("author"),
-                    cover_url=s.get("pic"),
-                    lyrics=s.get("lrc", ""),
+                    id=str(song_id),
+                    name=s.get("SongName", ""),
+                    artists=artists,
+                    duration=s.get("Duration", 0) * 1000,  # 转换为毫秒
                     source="kg",
+                    note=file_hash,  # 保存hash用于获取URL
                 )
             )
-        return songs[:limit]
+
+        return songs

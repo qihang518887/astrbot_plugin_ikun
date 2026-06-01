@@ -18,18 +18,30 @@ class NetEaseMusic(BaseMusicPlayer):
         super().__init__(config)
 
     async def fetch_songs(self, keyword: str, limit=5, extra=None) -> list[Song]:
+        # 使用网易云音乐的搜索API
         result = await self._request(
-            url="http://music.163.com/api/search/get/web",
+            url="https://music.163.com/api/search/pc",
             method="POST",
-            data={"s": keyword, "limit": limit, "type": 1, "offset": 0},
-            cookies={"appver": "2.0.2"},
+            data={
+                "s": keyword,
+                "limit": limit,
+                "type": 1,  # 1: 单曲
+                "offset": 0,
+            },
+            headers={
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                "Referer": "https://music.163.com/",
+                "Content-Type": "application/x-www-form-urlencoded",
+            },
+            cookies={"appver": "2.10.15", "os": "pc"},
         )
+        
         if (
             not isinstance(result, dict)
             or "result" not in result
-            or "songs" not in result["result"]
+            or "songs" not in result.get("result", {})
         ):
-            logger.error(f"返回了意料之外数据：{result}")
+            logger.error(f"网易云搜索返回了意料之外数据：{result}")
             return []
 
         songs = result["result"]["songs"][:limit]
@@ -38,7 +50,7 @@ class NetEaseMusic(BaseMusicPlayer):
             Song(
                 id=str(s.get("id")),
                 name=s.get("name"),
-                artists="、".join(a["name"] for a in s["artists"]),
+                artists="、".join(a["name"] for a in s.get("artists", [])),
                 duration=s.get("duration"),
                 source="wy",
             )

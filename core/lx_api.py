@@ -139,47 +139,67 @@ class LxMusicAPI:
             return None
 
         available_qualities = self.music_quality[source]
-        if quality not in available_qualities:
-            quality = available_qualities[0]
-            logger.warning(f"音质不支持，使用默认: {quality}")
+        
+        # 构建音质尝试列表：优先使用指定音质，然后fallback到其他音质
+        qualities_to_try = []
+        if quality in available_qualities:
+            qualities_to_try.append(quality)
+        # 添加其他音质作为fallback
+        for q in available_qualities:
+            if q not in qualities_to_try:
+                qualities_to_try.append(q)
 
-        try:
-            async with self.session.post(
-                f"{self.api_url}/music/url",
-                json={
-                    "source": source,
-                    "musicId": music_id,
-                    "quality": quality,
-                },
-                headers={
-                    "Content-Type": "application/json",
-                    "User-Agent": "lx-music-request/1.0",
-                    "X-Api-Key": self.api_key,
-                },
-            ) as resp:
-                if resp.status != 200:
-                    logger.error(f"API请求失败: {resp.status}")
-                    return None
+        logger.debug(f"尝试获取音乐URL: source={source}, music_id={music_id}, 音质列表={qualities_to_try}")
 
-                data = await resp.json()
-                code = data.get("code")
+        for try_quality in qualities_to_try:
+            try:
+                async with self.session.post(
+                    f"{self.api_url}/music/url",
+                    json={
+                        "source": source,
+                        "musicId": music_id,
+                        "quality": try_quality,
+                    },
+                    headers={
+                        "Content-Type": "application/json",
+                        "User-Agent": "lx-music-request/1.0",
+                        "X-Api-Key": self.api_key,
+                    },
+                ) as resp:
+                    if resp.status != 200:
+                        logger.error(f"API请求失败: HTTP {resp.status}")
+                        continue
 
-                if code == 200:
-                    return data.get("url")
-                elif code == 403:
-                    logger.error("API鉴权失败")
-                elif code == 429:
-                    logger.error("API请求过速")
-                elif code == 500:
-                    logger.error(f"获取URL失败: {data.get('message', '未知错误')}")
-                else:
-                    logger.error(f"未知错误: {data.get('message', '未知错误')}")
+                    data = await resp.json()
+                    code = data.get("code")
 
-                return None
+                    if code == 200:
+                        url = data.get("url")
+                        if url:
+                            logger.debug(f"获取URL成功: quality={try_quality}")
+                            return url
+                        else:
+                            logger.warning(f"API返回200但没有URL: {data}")
+                            continue
+                    elif code == 403:
+                        logger.error("API鉴权失败")
+                        return None  # 鉴权失败不需要重试
+                    elif code == 429:
+                        logger.error("API请求过速")
+                        return None  # 请求过速不需要重试
+                    elif code == 500:
+                        logger.warning(f"音质 {try_quality} 获取URL失败: {data.get('message', '未知错误')}，尝试下一个音质")
+                        continue
+                    else:
+                        logger.warning(f"未知错误 (code={code}): {data.get('message', '未知错误')}")
+                        continue
 
-        except Exception as e:
-            logger.error(f"获取音乐URL失败: {e}")
-            return None
+            except Exception as e:
+                logger.error(f"获取音乐URL异常: {e}")
+                continue
+
+        logger.error(f"所有音质都失败了: source={source}, music_id={music_id}")
+        return None
 
     def get_supported_qualities(self, source: str) -> list[str]:
         """获取指定音源支持的音质列表"""

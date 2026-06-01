@@ -11,7 +11,7 @@ class QQMusic(BaseMusicPlayer):
     platform: ClassVar[Platform] = Platform(
         name="qq",
         display_name="QQ音乐",
-        keywords=["qq", "QQ点歌"],
+        keywords=["qq", "QQ点歌", "tx", "qq音乐"],
     )
 
     BASE_URL = "https://music.txqq.pro/"

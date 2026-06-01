@@ -48,20 +48,39 @@ class QQMusic(BaseMusicPlayer):
             logger.error(f"QQ音乐搜索返回了意料之外的数据：{result}")
             return []
 
+        # 调试：打印返回数据的keys
+        logger.debug(f"QQ音乐搜索返回keys: {list(result.keys())}")
+        
         # 检查返回码
         if result.get("code") != 0:
-            logger.error(f"QQ音乐搜索失败: {result}")
+            logger.error(f"QQ音乐搜索失败: code={result.get('code')}, result={result}")
             return []
 
-        # 解析歌曲列表
+        # 解析歌曲列表 - 尝试多种响应结构
+        song_list = []
+        
+        # 方式1: music.search.SearchCgiService.DoSearchForQQMusicMobile
         search_data = result.get("music.search.SearchCgiService.DoSearchForQQMusicMobile", {})
-        if search_data.get("code") != 0:
-            logger.error(f"QQ音乐搜索请求失败: {search_data}")
+        if search_data.get("code") == 0:
+            song_list = search_data.get("data", {}).get("body", {}).get("item_song", [])
+        
+        # 方式2: req
+        if not song_list:
+            req_data = result.get("req", {})
+            if req_data.get("code") == 0:
+                song_list = req_data.get("data", {}).get("body", {}).get("item_song", [])
+        
+        # 方式3: 直接在data中
+        if not song_list:
+            data = result.get("data", {})
+            if isinstance(data, dict):
+                song_list = data.get("body", {}).get("item_song", [])
+
+        if not song_list:
+            logger.error(f"QQ音乐搜索未找到歌曲列表，完整响应: {json.dumps(result, ensure_ascii=False)[:500]}")
             return []
 
-        song_list = search_data.get("data", {}).get("body", {}).get("item_song", [])
         songs = []
-
         for s in song_list[:limit]:
             # 检查是否有media_mid
             file_info = s.get("file", {})

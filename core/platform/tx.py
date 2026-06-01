@@ -4,6 +4,7 @@ from astrbot.api import logger
 
 from ..config import PluginConfig
 from ..model import Platform, Song
+from ..qq_sign import build_search_data, get_sign
 from .base import BaseMusicPlayer
 
 
@@ -23,66 +24,61 @@ class QQMusic(BaseMusicPlayer):
         limit: int = 5,
         extra: str | None = None,
     ) -> list[Song]:
-        # 使用QQ音乐的搜索API
+        # 构建请求数据
+        data = build_search_data(keyword, page=1, limit=limit)
+        sign = get_sign(data)
+
+        # 使用洛雪音乐的签名方式调用QQ音乐API
         result = await self._request(
-            url="https://c.y.qq.com/soso/fcgi-bin/client_search_cp",
-            method="GET",
-            data={
-                "w": keyword,
-                "p": 1,
-                "n": limit,
-                "format": "json",
-                "cr": 1,
-                "new_json": 1,
-                "catZhida": 1,
-                "t": 0,
-                "ie": "utf-8",
-                "aggr": 0,
-                "remoteplace": "txt.yqq.song",
-                "lossless": 0,
-                "searchid": "59788061805442533",
-            },
+            url=f"https://u.y.qq.com/cgi-bin/musics.fcg?sign={sign}",
+            method="POST",
+            data=data,
             headers={
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-                "Referer": "https://y.qq.com/",
+                "User-Agent": "QQMusic 14090508(android 12)",
+                "Content-Type": "application/json",
             },
         )
 
-        # 处理JSONP或JSON响应
-        if isinstance(result, str):
-            # 如果是JSONP格式，提取JSON部分
-            if result.startswith("callback("):
-                json_str = result[9:-2]  # 去掉 callback( 和 );
-                try:
-                    import json
-                    result = json.loads(json_str)
-                except Exception as e:
-                    logger.error(f"解析QQ音乐JSONP响应失败: {e}")
-                    return []
-
-        if not isinstance(result, dict) or "data" not in result:
+        if not isinstance(result, dict):
             logger.error(f"QQ音乐搜索返回了意料之外的数据：{result}")
             return []
 
-        song_list = result.get("data", {}).get("song", {}).get("list", [])
+        # 检查返回码
+        if result.get("code") != 0:
+            logger.error(f"QQ音乐搜索失败: {result}")
+            return []
+
+        req_data = result.get("req", {})
+        if req_data.get("code") != 0:
+            logger.error(f"QQ音乐搜索请求失败: {req_data}")
+            return []
+
+        # 解析歌曲列表
+        song_list = req_data.get("data", {}).get("body", {}).get("item_song", [])
         songs = []
 
         for s in song_list[:limit]:
+            # 检查是否有media_mid
+            file_info = s.get("file", {})
+            if not file_info.get("media_mid"):
+                continue
+
             # 获取歌手名称
             singers = s.get("singer", [])
             artists = "、".join(singer.get("name", "") for singer in singers)
 
             # 获取歌曲ID
-            song_id = s.get("songmid") or s.get("mid", "")
+            song_id = s.get("mid", "")
 
             # 获取封面
-            album_mid = s.get("albummid", "")
+            album = s.get("album", {})
+            album_mid = album.get("mid", "")
             cover_url = f"https://y.gtimg.cn/music/photo_new/T002R500x500M000{album_mid}.jpg" if album_mid else ""
 
             songs.append(
                 Song(
                     id=song_id,
-                    name=s.get("songname", s.get("title", "")),
+                    name=s.get("title", ""),
                     artists=artists,
                     duration=s.get("interval", 0) * 1000,  # 转换为毫秒
                     cover_url=cover_url,

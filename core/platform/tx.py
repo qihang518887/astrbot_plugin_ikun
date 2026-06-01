@@ -1,4 +1,5 @@
 from typing import ClassVar
+import json
 
 from astrbot.api import logger
 
@@ -28,15 +29,19 @@ class QQMusic(BaseMusicPlayer):
         data = build_search_data(keyword, page=1, limit=limit)
         sign = get_sign(data)
 
+        # 将数据转换为bytes（与musicdl一致）
+        data_bytes = json.dumps(data, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+
         # 使用洛雪音乐的签名方式调用QQ音乐API
         result = await self._request(
-            url=f"https://u.y.qq.com/cgi-bin/musics.fcg?sign={sign}",
+            url=f"https://u.y.qq.com/cgi-bin/musics.fcg",
             method="POST",
-            data=data,
+            data=data_bytes,
             headers={
                 "User-Agent": "QQMusic 14090508(android 12)",
                 "Content-Type": "application/json",
             },
+            params={"sign": sign},
         )
 
         if not isinstance(result, dict):
@@ -48,13 +53,13 @@ class QQMusic(BaseMusicPlayer):
             logger.error(f"QQ音乐搜索失败: {result}")
             return []
 
-        req_data = result.get("req", {})
-        if req_data.get("code") != 0:
-            logger.error(f"QQ音乐搜索请求失败: {req_data}")
+        # 解析歌曲列表
+        search_data = result.get("music.search.SearchCgiService.DoSearchForQQMusicMobile", {})
+        if search_data.get("code") != 0:
+            logger.error(f"QQ音乐搜索请求失败: {search_data}")
             return []
 
-        # 解析歌曲列表
-        song_list = req_data.get("data", {}).get("body", {}).get("item_song", [])
+        song_list = search_data.get("data", {}).get("body", {}).get("item_song", [])
         songs = []
 
         for s in song_list[:limit]:

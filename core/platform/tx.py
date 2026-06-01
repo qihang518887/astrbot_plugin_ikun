@@ -34,12 +34,31 @@ class QQMusic(BaseMusicPlayer):
                 "format": "json",
                 "cr": 1,
                 "new_json": 1,
+                "catZhida": 1,
+                "t": 0,
+                "ie": "utf-8",
+                "aggr": 0,
+                "remoteplace": "txt.yqq.song",
+                "lossless": 0,
+                "searchid": "59788061805442533",
             },
             headers={
                 "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
                 "Referer": "https://y.qq.com/",
             },
         )
+
+        # 处理JSONP或JSON响应
+        if isinstance(result, str):
+            # 如果是JSONP格式，提取JSON部分
+            if result.startswith("callback("):
+                json_str = result[9:-2]  # 去掉 callback( 和 );
+                try:
+                    import json
+                    result = json.loads(json_str)
+                except Exception as e:
+                    logger.error(f"解析QQ音乐JSONP响应失败: {e}")
+                    return []
 
         if not isinstance(result, dict) or "data" not in result:
             logger.error(f"QQ音乐搜索返回了意料之外的数据：{result}")

@@ -2,48 +2,43 @@ import hashlib
 import base64
 import random
 import json
+import re
 
-# QQ音乐签名算法 - 移植自洛雪音乐
+# QQ音乐签名算法 - 移植自musicdl项目
 
 PART_1_INDEXES = [23, 14, 6, 36, 16, 40, 7, 19]
 PART_2_INDEXES = [16, 1, 32, 12, 19, 27, 8, 5]
 SCRAMBLE_VALUES = [89, 39, 179, 150, 218, 82, 58, 252, 177, 52, 186, 123, 120, 64, 242, 133, 143, 161, 121, 179]
 
 
-def _sha1_hash(text: str) -> str:
-    """计算SHA1哈希"""
-    return hashlib.sha1(text.encode('utf-8')).hexdigest()
-
-
-def _pick_hash_by_idx(hash_str: str, indexes: list) -> str:
-    """从哈希字符串中按索引提取字符（模拟JS行为，越界返回'undefined'）"""
-    result = []
-    for idx in indexes:
-        if idx < len(hash_str):
-            result.append(hash_str[idx])
-        else:
-            # 模拟JavaScript行为：越界返回undefined，转字符串
-            result.append('u')
-    return ''.join(result)
-
-
-def _base64_encode(data: bytes) -> str:
-    """Base64编码并移除特殊字符"""
-    return base64.b64encode(data).decode('utf-8').replace('\\', '').replace('/', '').replace('+', '').replace('=', '')
-
-
-def zzc_sign(text: str) -> str:
-    """QQ音乐签名算法"""
-    hash_str = _sha1_hash(text)
-    part1 = _pick_hash_by_idx(hash_str, PART_1_INDEXES)
-    part2 = _pick_hash_by_idx(hash_str, PART_2_INDEXES)
-    part3 = bytes([value ^ int(hash_str[i * 2:i * 2 + 2], 16) for i, value in enumerate(SCRAMBLE_VALUES)])
-    b64_part = _base64_encode(part3)
+def zzc_sign(request: dict) -> str:
+    """QQ音乐签名算法 - 移植自musicdl"""
+    # 过滤掉索引40（超出SHA1哈希范围）
+    valid_indexes = [i for i in PART_1_INDEXES if i < 40]
+    
+    # 计算SHA1哈希（与orjson.dumps行为一致）
+    request_str = json.dumps(request, separators=(',', ':'), ensure_ascii=False)
+    hash_str = hashlib.sha1(request_str.encode('utf-8')).hexdigest().upper()
+    
+    # 计算各部分
+    part1 = "".join(hash_str[i] for i in valid_indexes)
+    part2 = "".join(hash_str[i] for i in PART_2_INDEXES)
+    part3 = bytearray(20)
+    for i, v in enumerate(SCRAMBLE_VALUES):
+        part3[i] = v ^ int(hash_str[i * 2:i * 2 + 2], 16)
+    
+    # Base64编码并移除特殊字符
+    b64_part = re.sub(r'[\\/+=]', '', base64.b64encode(part3).decode('utf-8'))
+    
     return f"zzc{part1}{b64_part}{part2}".lower()
 
 
 def build_search_data(keyword: str, page: int = 1, limit: int = 30) -> dict:
     """构建QQ音乐搜索请求数据"""
+    searchid = str(random.randint(1, 20) * 18014398509481984 + 
+                   random.randint(0, 4194304) * 4294967296 + 
+                   round(random.random() * 1000) % (24 * 60 * 60 * 1000))
+    
     return {
         "comm": {
             "ct": "11",
@@ -79,11 +74,11 @@ def build_search_data(keyword: str, page: int = 1, limit: int = 30) -> dict:
             "method": "DoSearchForQQMusicMobile",
             "param": {
                 "search_type": 0,
-                "searchid": str(random.random())[2:],
+                "searchid": searchid,
                 "query": keyword,
                 "page_num": page,
                 "num_per_page": limit,
-                "highlight": 0,
+                "highlight": 1,
                 "nqc_flag": 0,
                 "multi_zhida": 0,
                 "cat": 2,
@@ -97,4 +92,4 @@ def build_search_data(keyword: str, page: int = 1, limit: int = 30) -> dict:
 
 def get_sign(data: dict) -> str:
     """获取签名"""
-    return zzc_sign(json.dumps(data, separators=(',', ':')))
+    return zzc_sign(data)

@@ -17,7 +17,7 @@ def _sha1_hash(text: str) -> str:
 
 def _pick_hash_by_idx(hash_str: str, indexes: list) -> str:
     """从哈希字符串中按索引提取字符"""
-    return ''.join(hash_str[idx] for idx in indexes)
+    return ''.join(hash_str[idx % len(hash_str)] for idx in indexes)
 
 
 def _base64_encode(data: bytes) -> str:

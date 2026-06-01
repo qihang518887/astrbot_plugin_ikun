@@ -140,12 +140,12 @@ class LxMusicAPI:
 
         available_qualities = self.music_quality[source]
         
-        # 构建音质尝试列表：优先使用指定音质，然后fallback到其他音质
+        # 构建音质尝试列表：优先使用指定音质，然后从高到低fallback
         qualities_to_try = []
         if quality in available_qualities:
             qualities_to_try.append(quality)
-        # 添加其他音质作为fallback
-        for q in available_qualities:
+        # 从高到低添加其他音质作为fallback（反转列表）
+        for q in reversed(available_qualities):
             if q not in qualities_to_try:
                 qualities_to_try.append(q)
 

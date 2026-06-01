@@ -137,19 +137,25 @@ class MusicSender:
 
     async def send_file(
         self, event: AstrMessageEvent, player: BaseMusicPlayer, song: Song
-    ):
+    ) -> bool:
+        logger.debug(f"开始发送文件模式：{song.name}")
+        
         if not song.audio_url:
+            logger.debug(f"歌曲 {song.name} 没有audio_url，尝试获取")
             song = await player.fetch_extra(song)
         if not song.audio_url:
+            logger.warning(f"【{song.name}】音频获取失败")
             await event.send(event.plain_result(f"【{song.name}】音频获取失败"))
             return False
 
+        logger.debug(f"正在下载歌曲：{song.audio_url}")
         file_path = await self.downloader.download_song(song.audio_url)
 
         async def send_by_url():
             try:
                 file_name_url = f"{song.name}_{song.artists}.mp3"
                 if song.audio_url:
+                    logger.debug(f"尝试通过URL发送文件：{file_name_url}")
                     seg_url = File(name=file_name_url, url=song.audio_url)
                     await event.send(event.chain_result([seg_url]))
                     return True
@@ -168,8 +174,10 @@ class MusicSender:
 
         try:
             file_name = f"{song.name}_{song.artists}{file_path.suffix}"
+            logger.debug(f"尝试发送本地文件：{file_name}，路径：{file_path}")
             seg = File(name=file_name, file=str(file_path.resolve()))
             await event.send(event.chain_result([seg]))
+            logger.debug(f"文件发送成功：{file_name}")
             return True
         except Exception as e:
             logger.warning(f"【{song.name}】本地文件发送失败: {e}，尝试直接发送 URL")

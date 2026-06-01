@@ -77,12 +77,14 @@ class MusicPlugin(Star):
         if not event.is_at_or_wake_command:
             return
         cmd, _, arg = event.message_str.partition(" ")
+        logger.debug(f"收到消息: cmd={cmd}, arg={arg}")
         if not arg:
             return
         player = self.get_player(word=cmd)
         if "点歌" == cmd:
             player = self.get_player(default=True)
         if not player:
+            logger.debug(f"未找到匹配的播放器, cmd={cmd}")
             return
         args = arg.split()
         index: int = int(args[-1]) if args[-1].isdigit() else 0
@@ -95,44 +97,56 @@ class MusicPlugin(Star):
             keyword=song_name, limit=self.cfg.real_song_limit, extra=cmd
         )
         if not songs:
+            logger.debug(f"搜索【{song_name}】无结果")
             yield event.plain_result(f"搜索【{song_name}】无结果")
             return
 
+        logger.debug(f"搜索到 {len(songs)} 首歌曲")
         if len(songs) == 1:
             index = 1
 
         if index and 0 <= index <= len(songs):
             selected_song = songs[int(index) - 1]
+            logger.debug(f"用户选择了第 {index} 首歌曲: {selected_song.name}")
             await self.sender.send_song(event, player, selected_song)
 
         else:
             title = f"【{player.platform.display_name}】"
-            asyncio.create_task(
-                self.sender.send_song_selection(event=event, songs=songs, title=title)
-            )
+            
+            async def _send_selection():
+                try:
+                    await self.sender.send_song_selection(event=event, songs=songs, title=title)
+                except Exception as e:
+                    logger.error(f"发送选歌消息失败: {e}")
+            
+            asyncio.create_task(_send_selection())
 
             @session_waiter(timeout=self.cfg.timeout)
             async def empty_mention_waiter(
                 controller: SessionController, event: AstrMessageEvent
             ):
-                arg = event.message_str.strip()
-                arg_lower = arg.lower()
-                for kw in self.keywords:
-                    if kw in arg_lower:
+                try:
+                    arg = event.message_str.strip()
+                    arg_lower = arg.lower()
+                    for kw in self.keywords:
+                        if kw in arg_lower:
+                            controller.stop()
+                            return
+                    index, modes, error = parse_user_input(arg)
+                    if error:
+                        await event.send(event.plain_result(error))
+                        return
+                    if index == 0:
+                        return
+                    if index < 1 or index > len(songs):
                         controller.stop()
                         return
-                index, modes, error = parse_user_input(arg)
-                if error:
-                    await event.send(event.plain_result(error))
-                    return
-                if index == 0:
-                    return
-                if index < 1 or index > len(songs):
+                    selected_song = songs[index - 1]
+                    await self.sender.send_song(event, player, selected_song, modes=modes)
                     controller.stop()
-                    return
-                selected_song = songs[index - 1]
-                await self.sender.send_song(event, player, selected_song, modes=modes)
-                controller.stop()
+                except Exception as e:
+                    logger.error(f"session_waiter处理异常: {e}")
+                    controller.stop()
 
             try:
                 await empty_mention_waiter(event)
@@ -141,6 +155,7 @@ class MusicPlugin(Star):
             except Exception as e:
                 logger.error(traceback.format_exc())
                 logger.error("点歌发生错误" + str(e))
+                yield event.plain_result("点歌发生错误，请稍后再试")
 
         event.stop_event()
 

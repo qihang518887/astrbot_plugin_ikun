@@ -14,7 +14,8 @@ class Downloader:
     def __init__(self, config: PluginConfig):
         self.cfg = config
         self.songs_dir = self.cfg.songs_dir
-        self.session = aiohttp.ClientSession(proxy=self.cfg.http_proxy)
+        timeout = aiohttp.ClientTimeout(total=60)
+        self.session = aiohttp.ClientSession(proxy=self.cfg.http_proxy, timeout=timeout)
 
     async def initialize(self):
         if self.cfg.clear_cache:

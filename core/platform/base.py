@@ -26,7 +26,8 @@ class BaseMusicPlayer(ABC):
 
     def __init__(self, config: PluginConfig):
         self.cfg = config
-        self.session = aiohttp.ClientSession(proxy=self.cfg.http_proxy)
+        timeout = aiohttp.ClientTimeout(total=30)
+        self.session = aiohttp.ClientSession(proxy=self.cfg.http_proxy, timeout=timeout)
         self.lx_api = LxMusicAPI(
             proxy=self.cfg.http_proxy,
             js_url=self.cfg.lx_js_url or None,

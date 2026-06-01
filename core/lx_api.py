@@ -21,7 +21,8 @@ class LxMusicAPI:
     }
 
     def __init__(self, proxy: str | None = None, js_url: str | None = None):
-        self.session = aiohttp.ClientSession(proxy=proxy)
+        timeout = aiohttp.ClientTimeout(total=30)
+        self.session = aiohttp.ClientSession(proxy=proxy, timeout=timeout)
         self.proxy = proxy
         self.js_url = js_url
         self.api_url = self.DEFAULT_API_URL

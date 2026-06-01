@@ -16,8 +16,15 @@ def _sha1_hash(text: str) -> str:
 
 
 def _pick_hash_by_idx(hash_str: str, indexes: list) -> str:
-    """从哈希字符串中按索引提取字符"""
-    return ''.join(hash_str[idx % len(hash_str)] for idx in indexes)
+    """从哈希字符串中按索引提取字符（模拟JS行为，越界返回'undefined'）"""
+    result = []
+    for idx in indexes:
+        if idx < len(hash_str):
+            result.append(hash_str[idx])
+        else:
+            # 模拟JavaScript行为：越界返回undefined，转字符串
+            result.append('u')
+    return ''.join(result)
 
 
 def _base64_encode(data: bytes) -> str:
@@ -90,4 +97,4 @@ def build_search_data(keyword: str, page: int = 1, limit: int = 30) -> dict:
 
 def get_sign(data: dict) -> str:
     """获取签名"""
-    return zzc_sign(json.dumps(data))
+    return zzc_sign(json.dumps(data, separators=(',', ':')))

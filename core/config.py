@@ -90,19 +90,16 @@ class ConfigNode:
 
 
 class PluginConfig(ConfigNode):
-    default_player_name: str
     song_limit: int
     select_mode: str
     send_modes: list[str]
     record_supported: list[str]
     file_supported: list[str]
     enable_comments: bool
-    enable_lyrics: bool
     proxy: str
     timeout: int
     timeout_recall: bool
     clear_cache: bool
-    playlist_limit: int
     lx_js_url: str
     lx_quality: str
 
@@ -118,9 +115,6 @@ class PluginConfig(ConfigNode):
         self.data_dir = Path(get_astrbot_plugin_data_path()) / self._plugin_name
         self.songs_dir = self.data_dir / "songs"
         self.songs_dir.mkdir(parents=True, exist_ok=True)
-        self.playlist_dir = self.data_dir / "playlist"
-        self.playlist_dir.mkdir(parents=True, exist_ok=True)
-        self.db_path = self.data_dir / "playlist.db"
 
         self._send_modes = [m.split("(", 1)[0].strip() for m in self.send_modes]
 

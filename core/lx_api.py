@@ -10,9 +10,6 @@ from astrbot.api import logger
 class LxMusicAPI:
     """洛雪音乐API"""
 
-    DEFAULT_API_URL = "https://c.wwwweb.top"
-    DEFAULT_API_KEY = "IKM-P09400001-ktWbLCNWD5Ac10Ko-r7"
-
     DEFAULT_MUSIC_QUALITY = {
         "kg": ["128k", "320k", "flac", "flac24bit", "hires", "atmos", "master"],
         "kw": ["128k", "320k", "flac", "flac24bit", "hires"],
@@ -25,14 +22,18 @@ class LxMusicAPI:
         self.session = aiohttp.ClientSession(proxy=proxy, timeout=timeout)
         self.proxy = proxy
         self.js_url = js_url
-        self.api_url = self.DEFAULT_API_URL
-        self.api_key = self.DEFAULT_API_KEY
+        self.api_url: str | None = None
+        self.api_key: str | None = None
         self.music_quality = self.DEFAULT_MUSIC_QUALITY.copy()
+        self._initialized = False
 
     async def initialize(self):
-        """初始化API配置，如果设置了JS URL则从JS文件解析"""
-        if self.js_url:
-            await self._load_js_config()
+        """初始化API配置，必须从JS文件加载"""
+        if not self.js_url:
+            raise ValueError("未配置 lx_js_url，请在插件配置中填写洛雪音乐JS音源URL")
+        await self._load_js_config()
+        if not self._initialized:
+            raise RuntimeError("无法加载洛雪音乐JS配置，请检查 lx_js_url 是否正确")
 
     async def close(self):
         if not self.session.closed:
@@ -120,10 +121,11 @@ class LxMusicAPI:
         if js_content:
             if self._parse_js_config(js_content):
                 logger.info(f"已从JS文件加载配置，API地址: {self.api_url}")
+                self._initialized = True
             else:
-                logger.warning("JS文件解析失败，使用默认配置")
+                logger.error("JS文件解析失败")
         else:
-            logger.warning("无法获取JS文件内容，使用默认配置")
+            logger.error("无法获取JS文件内容")
 
     async def get_music_url(self, source: str, music_id: str, quality: str = "320k") -> str | None:
         """
@@ -134,6 +136,10 @@ class LxMusicAPI:
         :param quality: 音质 (128k, 320k, flac, flac24bit, hires, atmos, master等)
         :return: 音乐URL或None
         """
+        if not self.api_url or not self.api_key:
+            logger.error("API未初始化，请检查 lx_js_url 配置")
+            return None
+
         if source not in self.music_quality:
             logger.error(f"不支持的音源: {source}")
             return None

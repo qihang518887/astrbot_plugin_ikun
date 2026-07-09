@@ -3,8 +3,7 @@ import random
 
 from astrbot.api import logger
 from astrbot.api.event import AstrMessageEvent
-from astrbot.core.message.components import File, Image, Record
-from astrbot.core.message.message_event_result import MessageChain
+from astrbot.core.message.components import File, Record
 from astrbot.core.platform.sources.aiocqhttp.aiocqhttp_message_event import (
     AiocqhttpMessageEvent,
 )
@@ -12,29 +11,15 @@ from astrbot.core.platform.sources.aiocqhttp.aiocqhttp_message_event import (
 from .config import PluginConfig
 from .downloader import Downloader
 from .model import Song
-from .platform import BaseMusicPlayer, NetEaseMusic
-from .renderer import MusicRenderer
+from .platform import BaseMusicPlayer
 
 
 class MusicSender:
     def __init__(
-        self, config: PluginConfig, renderer: MusicRenderer, downloader: Downloader
+        self, config: PluginConfig, downloader: Downloader
     ):
         self.cfg = config
-        self.renderer = renderer
         self.downloader = downloader
-
-    @staticmethod
-    def _format_time(duration_ms):
-        duration = duration_ms // 1000
-        hours = duration // 3600
-        minutes = (duration % 3600) // 60
-        seconds = duration % 60
-
-        if hours > 0:
-            return f"{hours}:{minutes:02d}:{seconds:02d}"
-        else:
-            return f"{minutes:02d}:{seconds:02d}"
 
     @staticmethod
     async def send_msg(event: AiocqhttpMessageEvent, payloads: dict) -> int | None:
@@ -76,46 +61,6 @@ class MusicSender:
             await event.send(event.plain_result(content))
             return True
         except Exception:
-            return False
-
-    async def send_lyrics(
-        self, event: AstrMessageEvent, player: BaseMusicPlayer, song: Song
-    ) -> bool:
-        if not song.lyrics:
-            await player.fetch_lyrics(song)
-        if song.lyrics:
-            await player.resolve_lyrics(song)
-        if not song.lyrics:
-            logger.error(f"【{song.name}】歌词获取失败")
-            return False
-        try:
-            image = self.renderer.draw_lyrics(song.lyrics)
-            await event.send(MessageChain(chain=[Image.fromBytes(image)]))
-            return True
-        except Exception as e:
-            logger.error(f"【{song.name}】歌词渲染/发送失败: {e}")
-            return False
-
-    async def send_card(
-        self, event: AiocqhttpMessageEvent, player: BaseMusicPlayer, song: Song
-    ) -> bool:
-        payloads: dict = {
-            "message": [
-                {
-                    "type": "music",
-                    "data": {
-                        "type": "163",
-                        "id": song.id,
-                    },
-                }
-            ]
-        }
-        try:
-            await self.send_msg(event, payloads)
-            return True
-        except Exception as e:
-            logger.error(e)
-            await event.send(event.plain_result(str(e)))
             return False
 
     async def send_record(
@@ -193,7 +138,6 @@ class MusicSender:
         self, event: AstrMessageEvent, player: BaseMusicPlayer, song: Song
     ) -> bool:
         try:
-            info = f"🎶{song.name} - {song.artists} {self._format_time(song.duration)}"
             song = await player.fetch_extra(song)
             info = song.to_lines()
             await event.send(event.plain_result(info))
@@ -204,7 +148,6 @@ class MusicSender:
 
     def _get_sender(self, mode: str):
         return {
-            "card": self.send_card,
             "record": self.send_record,
             "file": self.send_file,
             "text": self.send_text,
@@ -217,8 +160,6 @@ class MusicSender:
         match mode:
             case "text":
                 return True
-            case "card":
-                return platform == "aiocqhttp" and isinstance(player, NetEaseMusic)
             case "record":
                 return platform in self.cfg.record_supported
             case "file":
@@ -268,6 +209,3 @@ class MusicSender:
 
         if sent and self.cfg.enable_comments:
             await self.send_comment(event, player, song)
-
-        if sent and self.cfg.enable_lyrics:
-            await self.send_lyrics(event, player, song)

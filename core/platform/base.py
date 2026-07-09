@@ -79,30 +79,6 @@ class BaseMusicPlayer(ABC):
             return song
         return song
 
-    async def fetch_lyrics(self, song: Song) -> Song:
-        if song.lyrics:
-            return song
-        return song
-
-    async def resolve_lyrics(self, song: Song) -> Song:
-        lyrics = song.lyrics.strip() if isinstance(song.lyrics, str) else ""
-        if not lyrics.startswith(("http://", "https://")):
-            return song
-
-        try:
-            async with self.session.get(lyrics, headers=self.HEADERS) as resp:
-                if resp.status != 200:
-                    logger.warning(f"歌词 URL 请求返回 {resp.status}: {lyrics}")
-                    return song
-
-                content = (await resp.text()).strip("\ufeff").strip()
-                if content:
-                    song.lyrics = content
-        except Exception as e:
-            logger.warning(f"{self.__class__.__name__} resolve_lyrics 失败: {e}")
-
-        return song
-
     async def close(self):
         if not self.session.closed:
             await self.session.close()

@@ -11,7 +11,7 @@ class KuGouMusic(BaseMusicPlayer):
     platform: ClassVar[Platform] = Platform(
         name="kugou",
         display_name="酷狗音乐",
-        keywords=["酷狗", "酷狗点歌", "kg"],
+        keywords=["kg"],
     )
 
     def __init__(self, config: PluginConfig):

@@ -13,8 +13,6 @@ from astrbot.core.utils.session_waiter import (
 from .core.config import PluginConfig
 from .core.downloader import Downloader
 from .core.platform import BaseMusicPlayer
-from .core.playlist import Playlist
-from .core.renderer import MusicRenderer
 from .core.sender import MusicSender
 from .core.utils import parse_user_input
 
@@ -35,23 +33,16 @@ class MusicPlugin(Star):
         
         self.downloader = Downloader(self.cfg)
         await self.downloader.initialize()
-        self.renderer = MusicRenderer(self.cfg)
-        self.sender = MusicSender(self.cfg, self.renderer, self.downloader)
-
-        self.playlist = Playlist(self.cfg)
-        await self.playlist.initialize()
+        self.sender = MusicSender(self.cfg, self.downloader)
 
     async def terminate(self):
         await self.downloader.close()
         for parser in self.players:
             await parser.close()
-        await self.playlist.close()
 
     def get_player(
-        self, name: str | None = None, word: str | None = None, default: bool = False
+        self, name: str | None = None, word: str | None = None
     ) -> BaseMusicPlayer | None:
-        if default:
-            word = self.cfg.default_player_name
         for player in self.players:
             if name:
                 name_ = name.strip().lower()
@@ -72,23 +63,23 @@ class MusicPlugin(Star):
             self.keywords.extend(player.platform.keywords)
         logger.debug(f"已注册触发词：{self.keywords}")
 
-    @filter.event_message_type(filter.EventMessageType.ALL)
+    @filter.regex(r"^(wy|qq|kg|kw)\s+")
     async def on_search_song(self, event: AstrMessageEvent):
-        if not event.is_at_or_wake_command:
-            return
         cmd, _, arg = event.message_str.partition(" ")
         logger.debug(f"收到消息: cmd={cmd}, arg={arg}")
         if not arg:
             return
         player = self.get_player(word=cmd)
-        if "点歌" == cmd:
-            player = self.get_player(default=True)
         if not player:
             logger.debug(f"未找到匹配的播放器, cmd={cmd}")
             return
         args = arg.split()
-        index: int = int(args[-1]) if args[-1].isdigit() else 0
-        song_name = arg.removesuffix(str(index))
+        if args[-1].isdigit():
+            index = int(args[-1])
+            song_name = " ".join(args[:-1])
+        else:
+            index = 0
+            song_name = arg
         if not song_name:
             yield event.plain_result("未指定歌名")
             return
@@ -121,15 +112,20 @@ class MusicPlugin(Star):
             
             asyncio.create_task(_send_selection())
 
+            song_selected = False
+            new_search_event = None
+
             @session_waiter(timeout=self.cfg.timeout)
             async def empty_mention_waiter(
                 controller: SessionController, event: AstrMessageEvent
             ):
+                nonlocal song_selected, new_search_event
                 try:
                     arg = event.message_str.strip()
                     arg_lower = arg.lower()
                     for kw in self.keywords:
                         if kw in arg_lower:
+                            new_search_event = event
                             controller.stop()
                             return
                     index, modes, error = parse_user_input(arg)
@@ -142,6 +138,7 @@ class MusicPlugin(Star):
                         controller.stop()
                         return
                     selected_song = songs[index - 1]
+                    song_selected = True
                     await self.sender.send_song(event, player, selected_song, modes=modes)
                     controller.stop()
                 except Exception as e:
@@ -151,25 +148,19 @@ class MusicPlugin(Star):
             try:
                 await empty_mention_waiter(event)
             except TimeoutError as _:
-                yield event.plain_result("点歌超时！")
+                if not song_selected:
+                    yield event.plain_result("点歌超时！")
             except Exception as e:
                 logger.error(traceback.format_exc())
                 logger.error("点歌发生错误" + str(e))
                 yield event.plain_result("点歌发生错误，请稍后再试")
 
-        event.stop_event()
+            if new_search_event:
+                async for result in self.on_search_song(new_search_event):
+                    yield result
+                return
 
-    @filter.command("查歌词")
-    async def query_lyrics(self, event: AstrMessageEvent, song_name: str):
-        player = self.get_player(default=True)
-        if not player:
-            yield event.plain_result("无可用播放器")
-            return
-        songs = await player.fetch_songs(keyword=song_name, limit=1)
-        if not songs:
-            yield event.plain_result("没找到相关歌曲")
-            return
-        await self.sender.send_lyrics(event, player, songs[0])
+        event.stop_event()
 
     @filter.llm_tool()
     async def play_song_by_name(self, event: AstrMessageEvent, song_name: str):
@@ -178,110 +169,10 @@ class MusicPlugin(Star):
         Args:
             song_name(string): 歌曲名称或包含歌手的关键词
         """
-        player = self.get_player(default=True)
+        player = self.players[0] if self.players else None
         if not player:
             return "无可用播放器"
         songs = await player.fetch_songs(keyword=song_name, limit=1)
         if not songs:
             return "没找到相关歌曲"
         await self.sender.send_song(event, player, songs[0])
-
-    @filter.command("歌单收藏")
-    async def collect_song(self, event: AstrMessageEvent, song_name: str):
-        user_id = event.get_sender_id()
-        player = self.get_player(default=True)
-        if not player:
-            yield event.plain_result("无可用播放器")
-            return
-
-        songs = await player.fetch_songs(keyword=song_name, limit=1)
-        if not songs:
-            yield event.plain_result(f"搜索【{song_name}】无结果")
-            return
-
-        song = songs[0]
-        platform = player.platform.name
-
-        success = await self.playlist.add_song(user_id, song, platform)
-        if success:
-            yield event.plain_result(f"已收藏【{song.name}_{song.artists}】")
-        else:
-            yield event.plain_result(f"【{song.name}】已在你的歌单中")
-
-    @filter.command("歌单取藏")
-    async def uncollect_song(self, event: AstrMessageEvent, song_name: str):
-        user_id = event.get_sender_id()
-        player = self.get_player(default=True)
-        if not player:
-            yield event.plain_result("无可用播放器")
-            return
-
-        songs = await player.fetch_songs(keyword=song_name, limit=1)
-        if not songs:
-            yield event.plain_result(f"搜索【{song_name}】无结果")
-            return
-
-        song = songs[0]
-        platform = player.platform.name
-
-        success = await self.playlist.remove_song(user_id, song.id, platform)
-        if success:
-            yield event.plain_result(f"已取消收藏【{song.name}_{song.artists}】")
-        else:
-            yield event.plain_result(f"【{song.name}】不在你的歌单中")
-
-    @filter.command("歌单列表")
-    async def view_playlist(self, event: AstrMessageEvent):
-        user_id = event.get_sender_id()
-        user_name = event.get_sender_name()
-
-        if await self.playlist.is_empty(user_id):
-            yield event.plain_result("你的歌单是空的，使用「收藏 <歌名>」来添加歌曲")
-            return
-
-        songs_with_platform = await self.playlist.get_songs(user_id)
-        if not songs_with_platform:
-            yield event.plain_result("获取歌单失败")
-            return
-
-        playlist_text = f"【{user_name}的歌单】\n"
-        for i, (song, platform) in enumerate(songs_with_platform, 1):
-            playlist_text += f"{i}. {song.name} - {song.artists}\n"
-
-        yield event.plain_result(playlist_text.strip())
-
-    @filter.command("歌单点歌")
-    async def play_from_playlist(self, event: AstrMessageEvent, index: str):
-        user_id = event.get_sender_id()
-
-        if not index.isdigit():
-            yield event.plain_result("请输入有效的序号")
-            return
-
-        idx = int(index)
-        if idx < 1:
-            yield event.plain_result("序号必须大于0")
-            return
-
-        songs_with_platform = await self.playlist.get_songs(user_id)
-        if not songs_with_platform:
-            yield event.plain_result("你的歌单是空的")
-            return
-
-        if idx > len(songs_with_platform):
-            yield event.plain_result(
-                f"序号超出范围，你的歌单只有{len(songs_with_platform)}首歌"
-            )
-            return
-
-        song, platform_name = songs_with_platform[idx - 1]
-
-        player = self.get_player(name=platform_name)
-        if not player:
-            player = self.get_player(default=True)
-
-        if not player:
-            yield event.plain_result("无可用播放器")
-            return
-
-        await self.sender.send_song(event, player, song)

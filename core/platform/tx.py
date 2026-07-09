@@ -13,7 +13,7 @@ class QQMusic(BaseMusicPlayer):
     platform: ClassVar[Platform] = Platform(
         name="qq",
         display_name="QQ音乐",
-        keywords=["qq", "QQ点歌", "tx", "qq音乐"],
+        keywords=["qq"],
     )
 
     def __init__(self, config: PluginConfig):

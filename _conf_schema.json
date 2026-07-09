@@ -1,16 +1,4 @@
 {
-    "default_player_name": {
-        "description": "默认点歌平台",
-        "hint": "定义点歌命令默认使用的平台。所有平台都支持用命令实时调用：网易点歌/wy点歌、QQ点歌/tx点歌、酷狗点歌/kg点歌、酷我点歌/kw点歌",
-        "type": "string",
-        "options": [
-            "网易点歌",
-            "QQ点歌",
-            "酷狗点歌",
-            "酷我点歌"
-        ],
-        "default": "网易点歌"
-    },
     "song_limit": {
         "description": "搜索歌曲数量限制",
         "hint": "搜索歌曲数量限制",
@@ -38,16 +26,14 @@
     },
     "send_modes": {
         "description": "发送模式",
-        "hint": "此配置决定发送歌曲方式的优先级, 排在前面的模式优先，发送失败时自动尝试下一种模式。 注意: 卡片模式仅QQ发送网易云音乐时可用, 语音模式、文件模式发送较慢，文本模式将以链接形式发送",
+        "hint": "此配置决定发送歌曲方式的优先级, 排在前面的模式优先，发送失败时自动尝试下一种模式。 语音模式、文件模式发送较慢，文本模式将以链接形式发送",
         "type": "list",
         "options": [
-            "card(卡片模式)",
             "record(语音模式)",
             "file(文件模式)",
             "text(文本模式)"
         ],
         "default": [
-            "card(卡片模式)",
             "record(语音模式)",
             "file(文件模式)",
             "text(文本模式)"
@@ -129,12 +115,6 @@
         "type": "bool",
         "default": false
     },
-    "enable_lyrics": {
-        "description": "是否启用歌词",
-        "hint": "开启后在发送歌曲后附加一张歌曲图片",
-        "type": "bool",
-        "default": false
-    },
     "proxy": {
         "description": "代理地址",
         "hint": "如 http://127.0.0.1:7890，留空则直连。作用于网络请求时",
@@ -164,20 +144,9 @@
         "type": "bool",
         "default": true
     },
-    "playlist_limit": {
-        "description": "歌单容量限制",
-        "hint": "决定了用户的歌单最多能添加多少首歌",
-        "type": "int",
-        "slider": {
-            "min": 10,
-            "max": 200,
-            "step": 1
-        },
-        "default": 100
-    },
     "lx_js_url": {
-        "description": "洛雪音乐JS音源URL",
-        "hint": "填写洛雪音乐的JS音源文件URL地址，插件会自动下载并解析其中的API配置。留空则使用内置默认配置",
+        "description": "洛雪音乐JS音源URL（必填）",
+        "hint": "必填。填写洛雪音乐的JS音源文件URL地址（支持远程URL或本地文件路径），插件会自动下载并解析其中的API配置",
         "type": "string",
         "default": ""
     },

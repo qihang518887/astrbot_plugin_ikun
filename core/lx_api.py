@@ -127,13 +127,13 @@ class LxMusicAPI:
         else:
             logger.error("无法获取JS文件内容")
 
-    async def get_music_url(self, source: str, music_id: str, quality: str = "320k") -> str | None:
+    async def get_music_url(self, source: str, music_id: str, prefer_high_quality: bool = True) -> str | None:
         """
         获取音乐播放URL
 
         :param source: 音源类型 (kg, kw, tx, wy)
         :param music_id: 歌曲ID
-        :param quality: 音质 (128k, 320k, flac, flac24bit, hires, atmos, master等)
+        :param prefer_high_quality: 是否优先高音质，True=高音质优先(文件模式)，False=低音质优先(语音模式)
         :return: 音乐URL或None
         """
         if not self.api_url or not self.api_key:
@@ -146,14 +146,13 @@ class LxMusicAPI:
 
         available_qualities = self.music_quality[source]
         
-        # 构建音质尝试列表：优先使用指定音质，然后从高到低fallback
-        qualities_to_try = []
-        if quality in available_qualities:
-            qualities_to_try.append(quality)
-        # 从高到低添加其他音质作为fallback（反转列表）
-        for q in reversed(available_qualities):
-            if q not in qualities_to_try:
-                qualities_to_try.append(q)
+        # 构建音质尝试列表
+        if prefer_high_quality:
+            # 文件模式：从高到低
+            qualities_to_try = list(reversed(available_qualities))
+        else:
+            # 语音模式：从低到高
+            qualities_to_try = list(available_qualities)
 
         logger.debug(f"尝试获取音乐URL: source={source}, music_id={music_id}, 音质列表={qualities_to_try}")
 

@@ -55,7 +55,7 @@ class BaseMusicPlayer(ABC):
     ) -> list[Song]:
         raise NotImplementedError
 
-    async def fetch_extra(self, song: Song) -> Song:
+    async def fetch_extra(self, song: Song, prefer_high_quality: bool = True) -> Song:
         if song.audio_url:
             return song
 
@@ -66,7 +66,7 @@ class BaseMusicPlayer(ABC):
         url = await self.lx_api.get_music_url(
             source=song.source,
             music_id=song.id,
-            quality=self.cfg.lx_quality,
+            prefer_high_quality=prefer_high_quality,
         )
 
         if url:

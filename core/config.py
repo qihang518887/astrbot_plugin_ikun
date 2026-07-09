@@ -101,7 +101,6 @@ class PluginConfig(ConfigNode):
     timeout_recall: bool
     clear_cache: bool
     lx_js_url: str
-    lx_quality: str
 
     _plugin_name: str = "astrbot_plugin_ikun"
 

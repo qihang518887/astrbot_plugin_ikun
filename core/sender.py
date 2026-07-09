@@ -67,7 +67,7 @@ class MusicSender:
         self, event: AstrMessageEvent, player: BaseMusicPlayer, song: Song
     ) -> bool:
         if not song.audio_url:
-            song = await player.fetch_extra(song)
+            song = await player.fetch_extra(song, prefer_high_quality=False)
         if not song.audio_url:
             await event.send(event.plain_result(f"【{song.name}】音频获取失败"))
             return False
@@ -87,7 +87,7 @@ class MusicSender:
         
         if not song.audio_url:
             logger.debug(f"歌曲 {song.name} 没有audio_url，尝试获取")
-            song = await player.fetch_extra(song)
+            song = await player.fetch_extra(song, prefer_high_quality=True)
         if not song.audio_url:
             logger.warning(f"【{song.name}】音频获取失败")
             await event.send(event.plain_result(f"【{song.name}】音频获取失败"))
@@ -138,7 +138,7 @@ class MusicSender:
         self, event: AstrMessageEvent, player: BaseMusicPlayer, song: Song
     ) -> bool:
         try:
-            song = await player.fetch_extra(song)
+            song = await player.fetch_extra(song, prefer_high_quality=True)
             info = song.to_lines()
             await event.send(event.plain_result(info))
             return True

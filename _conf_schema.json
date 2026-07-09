@@ -149,21 +149,5 @@
         "hint": "必填。填写洛雪音乐的JS音源文件URL地址（支持远程URL或本地文件路径），插件会自动下载并解析其中的API配置",
         "type": "string",
         "default": ""
-    },
-    "lx_quality": {
-        "description": "洛雪音乐音质",
-        "hint": "设置洛雪音乐API获取音频的音质，越高音质越好但文件越大。可选项取决于JS音源支持的音质",
-        "type": "string",
-        "options": [
-            "128k",
-            "320k",
-            "flac",
-            "flac24bit",
-            "hires",
-            "atmos",
-            "atmos_plus",
-            "master"
-        ],
-        "default": "320k"
     }
 }

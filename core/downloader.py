@@ -103,6 +103,11 @@ class Downloader:
         self._queue.put_nowait(task)
         return task.future, position
 
+    @property
+    def queue_size(self) -> int:
+        """当前队列中的任务数（包括正在处理和等待的）"""
+        return len(self._pending)
+
     async def _do_download(self, url: str) -> Path | None:
         song_uuid = uuid.uuid4().hex
         file_path = self.songs_dir / f"{song_uuid}.mp3"

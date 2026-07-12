@@ -20,7 +20,6 @@ class MusicSender:
     ):
         self.cfg = config
         self.downloader = downloader
-        self._request_counter = 0
 
     @staticmethod
     async def send_msg(event: AiocqhttpMessageEvent, payloads: dict) -> int | None:
@@ -190,8 +189,7 @@ class MusicSender:
         sent = False
         target_modes = modes if modes is not None else self.cfg.real_send_modes
 
-        self._request_counter += 1
-        await event.send(event.plain_result(f"已添加到下载队列，当前排第 {self._request_counter} 位"))
+        await event.send(event.plain_result(f"已添加到下载队列，当前排第 {self.downloader.queue_size} 位"))
 
         for mode in target_modes:
             if not self._is_mode_supported(mode, event):

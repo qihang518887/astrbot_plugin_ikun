@@ -22,14 +22,15 @@ class Downloader:
     def __init__(self, config: PluginConfig):
         self.cfg = config
         self.songs_dir = self.cfg.songs_dir
-        timeout = aiohttp.ClientTimeout(total=60)
-        self.session = aiohttp.ClientSession(proxy=self.cfg.http_proxy, timeout=timeout)
+        self.session: aiohttp.ClientSession | None = None
         self._queue: asyncio.Queue[_DownloadTask] = asyncio.Queue()
         self._worker_task: asyncio.Task | None = None
         self._cache: dict[str, Path] = {}
         self._pending: dict[str, asyncio.Future] = {}
 
     async def initialize(self):
+        timeout = aiohttp.ClientTimeout(total=60)
+        self.session = aiohttp.ClientSession(proxy=self.cfg.http_proxy, timeout=timeout)
         if self.cfg.clear_cache:
             self._ensure_cache_dir()
 
@@ -40,7 +41,8 @@ class Downloader:
                 await self._worker_task
             except asyncio.CancelledError:
                 pass
-        await self.session.close()
+        if self.session:
+            await self.session.close()
 
     async def close(self):
         await self.terminate()
@@ -132,3 +134,4 @@ class Downloader:
                 return img_bytes
         except Exception as e:
             logger.error(f"图片下载失败: {e}")
+            return None

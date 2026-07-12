@@ -29,7 +29,7 @@ class MusicSender:
         else:
             payloads["group_id"] = event.get_group_id()
             result = await event.bot.api.call_action("send_group_msg", **payloads)
-        return result.get("message_id")
+        return result.get("message_id") if result else None
 
     async def send_song_selection(
         self, event: AstrMessageEvent, songs: list[Song], title: str | None = None
@@ -117,6 +117,7 @@ class MusicSender:
             except Exception as e_url:
                 logger.error(f"URL 发送失败: {e_url}")
                 return False
+            return False
 
         if not file_path:
             logger.warning(f"【{song.name}】下载失败，尝试直接发送 URL")
@@ -164,7 +165,7 @@ class MusicSender:
         }.get(mode)
 
     def _is_mode_supported(
-        self, mode: str, event: AstrMessageEvent, player: BaseMusicPlayer
+        self, mode: str, event: AstrMessageEvent
     ) -> bool:
         platform = event.get_platform_name()
         match mode:
@@ -193,7 +194,7 @@ class MusicSender:
         target_modes = modes if modes is not None else self.cfg.real_send_modes
 
         for mode in target_modes:
-            if not self._is_mode_supported(mode, event, player):
+            if not self._is_mode_supported(mode, event):
                 logger.debug(f"{mode} 不支持，跳过")
                 continue
 

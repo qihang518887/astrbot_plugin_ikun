@@ -139,8 +139,10 @@ class MusicPlugin(Star):
                         return
                     selected_song = songs[index - 1]
                     song_selected = True
-                    await self.sender.send_song(event, player, selected_song, modes=modes)
                     controller.stop()
+                    asyncio.create_task(
+                        self.sender.send_song(event, player, selected_song, modes=modes)
+                    )
                 except Exception as e:
                     logger.error(f"session_waiter处理异常: {e}")
                     controller.stop()

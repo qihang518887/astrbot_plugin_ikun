@@ -67,6 +67,8 @@ class Downloader:
                         task.future.set_exception(e)
                 finally:
                     self._pending.pop(task.url, None)
+                    if not task.future.done():
+                        task.future.cancel()
                     self._queue.task_done()
         except asyncio.CancelledError:
             while not self._queue.empty():

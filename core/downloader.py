@@ -15,7 +15,7 @@ from .config import PluginConfig
 @dataclass
 class _DownloadTask:
     url: str
-    future: asyncio.Future = field(default_factory=lambda: asyncio.get_event_loop().create_future())
+    future: asyncio.Future = field(default_factory=lambda: asyncio.get_running_loop().create_future())
 
 
 class Downloader:
@@ -25,13 +25,13 @@ class Downloader:
         timeout = aiohttp.ClientTimeout(total=60)
         self.session = aiohttp.ClientSession(proxy=self.cfg.http_proxy, timeout=timeout)
         self._queue: asyncio.Queue[_DownloadTask] = asyncio.Queue()
-        self._count = 0
         self._worker_task: asyncio.Task | None = None
+        self._cache: dict[str, Path] = {}
+        self._pending: dict[str, asyncio.Future] = {}
 
     async def initialize(self):
         if self.cfg.clear_cache:
             self._ensure_cache_dir()
-        self._worker_task = asyncio.create_task(self._worker_loop())
 
     async def terminate(self):
         if self._worker_task:
@@ -49,6 +49,7 @@ class Downloader:
         if self.songs_dir.exists():
             shutil.rmtree(self.songs_dir)
         self.songs_dir.mkdir(parents=True, exist_ok=True)
+        self._cache.clear()
         logger.debug(f"缓存目录已重建：{self.songs_dir}")
 
     async def _worker_loop(self):
@@ -57,18 +58,21 @@ class Downloader:
                 task = await self._queue.get()
                 try:
                     result = await self._do_download(task.url)
+                    if result:
+                        self._cache[task.url] = result
                     if not task.future.done():
                         task.future.set_result(result)
                 except Exception as e:
                     if not task.future.done():
                         task.future.set_exception(e)
                 finally:
-                    self._count -= 1
+                    self._pending.pop(task.url, None)
                     self._queue.task_done()
         except asyncio.CancelledError:
             while not self._queue.empty():
                 try:
                     task = self._queue.get_nowait()
+                    self._pending.pop(task.url, None)
                     if not task.future.done():
                         task.future.cancel()
                     self._queue.task_done()
@@ -76,12 +80,23 @@ class Downloader:
                     break
             raise
 
-    async def enqueue(self, url: str) -> tuple[asyncio.Future, int]:
-        """将下载任务加入队列，返回 (future, 你的位置)。位置从1开始。"""
+    def enqueue(self, url: str) -> tuple[asyncio.Future, int]:
+        """将下载任务加入队列，返回 (future, 位置)。位置=0表示缓存/待处理命中，>0表示排队位置。"""
+        if url in self._cache:
+            future = asyncio.get_running_loop().create_future()
+            future.set_result(self._cache[url])
+            return future, 0
+
+        if url in self._pending:
+            return self._pending[url], 0
+
+        if self._worker_task is None:
+            self._worker_task = asyncio.create_task(self._worker_loop())
+
         task = _DownloadTask(url)
-        self._count += 1
-        position = self._count
-        await self._queue.put(task)
+        self._pending[url] = task.future
+        position = self._queue.qsize() + 1
+        self._queue.put_nowait(task)
         return task.future, position
 
     async def _do_download(self, url: str) -> Path | None:
@@ -104,7 +119,7 @@ class Downloader:
             return None
 
     async def download_song(self, url: str) -> Path | None:
-        future, _ = await self.enqueue(url)
+        future, _ = self.enqueue(url)
         return await future
 
     async def download_image(self, url: str, close_ssl: bool = True) -> bytes | None:

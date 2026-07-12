@@ -1,5 +1,4 @@
 import asyncio
-import asyncio
 import random
 
 from astrbot.api import logger
@@ -95,10 +94,17 @@ class MusicSender:
             return False
 
         logger.debug(f"正在下载歌曲：{song.audio_url}")
-        future, position = await self.downloader.enqueue(song.audio_url)
-        total = position
-        await event.send(event.plain_result(f"已添加到下载队列，当前{position}/{total}"))
-        file_path = await future
+        future, position = self.downloader.enqueue(song.audio_url)
+        if position == 0:
+            logger.debug(f"歌曲 {song.name} 命中缓存，跳过下载")
+        else:
+            await event.send(event.plain_result(f"已添加到下载队列，当前排第 {position} 位"))
+        try:
+            file_path = await future
+        except Exception as e:
+            logger.error(f"【{song.name}】下载异常: {e}")
+            await event.send(event.plain_result(f"【{song.name}】下载失败: {e}"))
+            return False
 
         async def send_by_url():
             try:

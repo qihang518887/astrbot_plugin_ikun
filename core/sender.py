@@ -33,7 +33,7 @@ class MusicSender:
 
     async def send_song_selection(
         self, event: AstrMessageEvent, songs: list[Song], title: str | None = None
-    ) -> None:
+    ) -> int | None:
         formatted_songs = [
             f"{index + 1}. {song.name} - {song.artists}"
             for index, song in enumerate(songs)
@@ -44,12 +44,10 @@ class MusicSender:
         msg = "\n".join(formatted_songs)
         if isinstance(event, AiocqhttpMessageEvent):
             payloads = {"message": [{"type": "text", "data": {"text": msg}}]}
-            message_id = await self.send_msg(event, payloads)
-            if message_id and self.cfg.timeout_recall:
-                await asyncio.sleep(self.cfg.timeout)
-                await event.bot.delete_msg(message_id=message_id)
+            return await self.send_msg(event, payloads)
         else:
             await event.send(event.plain_result(msg))
+            return None
 
     async def send_comment(
         self, event: AstrMessageEvent, player: BaseMusicPlayer, song: Song

@@ -1,4 +1,5 @@
 import asyncio
+import re
 import traceback
 
 from astrbot.api import logger
@@ -63,8 +64,12 @@ class MusicPlugin(Star):
             self.keywords.extend(player.platform.keywords)
         logger.debug(f"已注册触发词：{self.keywords}")
 
-    @filter.regex(r"^(wy|qq|kg|kw)\s+")
+    @filter.event_message_type(filter.EventMessageType.ALL)
     async def on_search_song(self, event: AstrMessageEvent):
+        # 仅处理匹配点歌前缀的消息
+        if not re.match(r"^(wy|qq|kg|kw)\s+", event.message_str.strip()):
+            return
+
         cmd, _, arg = event.message_str.partition(" ")
         logger.debug(f"收到消息: cmd={cmd}, arg={arg}")
         if not arg:
@@ -103,31 +108,32 @@ class MusicPlugin(Star):
 
         else:
             title = f"【{player.platform.display_name}】"
-            
+            selection_message_id: int | None = None
+
             async def _send_selection():
+                nonlocal selection_message_id
                 try:
-                    await self.sender.send_song_selection(event=event, songs=songs, title=title)
+                    selection_message_id = await self.sender.send_song_selection(
+                        event=event, songs=songs, title=title
+                    )
                 except Exception as e:
                     logger.error(f"发送选歌消息失败: {e}")
-            
-            asyncio.create_task(_send_selection())
 
-            song_selected = False
-            new_search_event = None
+            asyncio.create_task(_send_selection())
 
             @session_waiter(timeout=self.cfg.timeout)
             async def empty_mention_waiter(
                 controller: SessionController, event: AstrMessageEvent
             ):
-                nonlocal song_selected, new_search_event
+                nonlocal selection_message_id
                 try:
                     arg = event.message_str.strip()
                     arg_lower = arg.lower()
                     for kw in self.keywords:
                         if kw in arg_lower:
-                            new_search_event = event
                             controller.stop()
                             return
+                    # 解析输入格式
                     index, modes, error = parse_user_input(arg)
                     if error:
                         await event.send(event.plain_result(error))
@@ -138,11 +144,10 @@ class MusicPlugin(Star):
                         controller.stop()
                         return
                     selected_song = songs[index - 1]
-                    song_selected = True
                     controller.stop()
-                    asyncio.create_task(
-                        self.sender.send_song(event, player, selected_song, modes=modes)
-                    )
+                    await self.sender.send_song(event, player, selected_song, modes=modes)
+                    if selection_message_id and self.cfg.timeout_recall:
+                        await event.bot.delete_msg(message_id=selection_message_id)
                 except Exception as e:
                     logger.error(f"session_waiter处理异常: {e}")
                     controller.stop()
@@ -150,17 +155,10 @@ class MusicPlugin(Star):
             try:
                 await empty_mention_waiter(event)
             except TimeoutError as _:
-                if not song_selected:
-                    yield event.plain_result("点歌超时！")
+                yield event.plain_result("点歌超时！")
             except Exception as e:
                 logger.error(traceback.format_exc())
                 logger.error("点歌发生错误" + str(e))
-                yield event.plain_result("点歌发生错误，请稍后再试")
-
-            if new_search_event:
-                async for result in self.on_search_song(new_search_event):
-                    yield result
-                return
 
         event.stop_event()
 

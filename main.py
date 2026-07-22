@@ -1,24 +1,21 @@
-import asyncio
 import re
-import traceback
+import time
 
 from astrbot.api import logger
 from astrbot.api.event import AstrMessageEvent, filter
 from astrbot.api.star import Context, Star
 from astrbot.core.config.astrbot_config import AstrBotConfig
-from astrbot.core.utils.session_waiter import (
-    SessionController,
-    session_waiter,
-)
 
 from .core.config import PluginConfig
 from .core.downloader import Downloader
 from .core.platform import BaseMusicPlayer
 from .core.sender import MusicSender
-from .core.utils import parse_user_input
 
 
 class MusicPlugin(Star):
+    # Track pending song selections per conversation (unified_msg_origin -> data)
+    _pending_selections: dict[str, dict] = {}
+
     def __init__(self, context: Context, config: AstrBotConfig):
         super().__init__(context)
         self.cfg = PluginConfig(config, context)
@@ -66,8 +63,43 @@ class MusicPlugin(Star):
 
     @filter.event_message_type(filter.EventMessageType.ALL)
     async def on_search_song(self, event: AstrMessageEvent):
-        # 仅处理匹配点歌前缀的消息
-        if not re.match(r"^(wy|qq|kg|kw)\s+", event.message_str.strip()):
+        msg = event.message_str.strip()
+        session_key = event.unified_msg_origin
+
+        # ── Check for expired pending selections ──
+        self._clean_expired_selections()
+
+        # ── Case 1: User is selecting a song by number ──
+        pending = self._pending_selections.get(session_key)
+        if pending and msg.isdigit():
+            # Check if pending selection has expired
+            if time.time() - pending['timestamp'] > self.cfg.timeout:
+                del self._pending_selections[session_key]
+                yield event.plain_result("点歌超时！请重新搜索歌曲")
+                event.stop_event()
+                return
+            index = int(msg)
+            if index < 1 or index > len(pending['songs']):
+                yield event.plain_result(f"序号无效，请输入 1-{len(pending['songs'])}")
+                event.stop_event()
+                return
+            selected_song = pending['songs'][index - 1]
+            del self._pending_selections[session_key]
+            logger.debug(f"用户选择了第 {index} 首歌曲: {selected_song.name}")
+            await self.sender.send_song(
+                event, pending['player'], selected_song,
+                modes=pending.get('modes')
+            )
+            if pending.get('selection_message_id') and self.cfg.timeout_recall:
+                try:
+                    await event.bot.delete_msg(message_id=pending['selection_message_id'])
+                except Exception as e:
+                    logger.error(f"撤回选歌消息失败: {e}")
+            event.stop_event()
+            return
+
+        # ── Case 2: Song search command ──
+        if not re.match(r"^(wy|qq|kg|kw)\s+", msg):
             return
 
         cmd, _, arg = event.message_str.partition(" ")
@@ -87,6 +119,7 @@ class MusicPlugin(Star):
             song_name = arg
         if not song_name:
             yield event.plain_result("未指定歌名")
+            event.stop_event()
             return
         logger.debug(f"正在通过{player.platform.display_name}搜索歌曲：{song_name}")
         songs = await player.fetch_songs(
@@ -95,6 +128,7 @@ class MusicPlugin(Star):
         if not songs:
             logger.debug(f"搜索【{song_name}】无结果")
             yield event.plain_result(f"搜索【{song_name}】无结果")
+            event.stop_event()
             return
 
         logger.debug(f"搜索到 {len(songs)} 首歌曲")
@@ -108,59 +142,36 @@ class MusicPlugin(Star):
 
         else:
             title = f"【{player.platform.display_name}】"
-            selection_message_id: int | None = None
-
-            async def _send_selection():
-                nonlocal selection_message_id
-                try:
-                    selection_message_id = await self.sender.send_song_selection(
-                        event=event, songs=songs, title=title
-                    )
-                except Exception as e:
-                    logger.error(f"发送选歌消息失败: {e}")
-
-            asyncio.create_task(_send_selection())
-
-            @session_waiter(timeout=self.cfg.timeout)
-            async def empty_mention_waiter(
-                controller: SessionController, event: AstrMessageEvent
-            ):
-                nonlocal selection_message_id
-                try:
-                    arg = event.message_str.strip()
-                    arg_lower = arg.lower()
-                    for kw in self.keywords:
-                        if kw in arg_lower:
-                            controller.stop()
-                            return
-                    # 解析输入格式
-                    index, modes, error = parse_user_input(arg)
-                    if error:
-                        await event.send(event.plain_result(error))
-                        return
-                    if index == 0:
-                        return
-                    if index < 1 or index > len(songs):
-                        controller.stop()
-                        return
-                    selected_song = songs[index - 1]
-                    controller.stop()
-                    await self.sender.send_song(event, player, selected_song, modes=modes)
-                    if selection_message_id and self.cfg.timeout_recall:
-                        await event.bot.delete_msg(message_id=selection_message_id)
-                except Exception as e:
-                    logger.error(f"session_waiter处理异常: {e}")
-                    controller.stop()
-
+            # Send the selection list synchronously
             try:
-                await empty_mention_waiter(event)
-            except TimeoutError as _:
-                yield event.plain_result("点歌超时！")
+                selection_message_id = await self.sender.send_song_selection(
+                    event=event, songs=songs, title=title
+                )
             except Exception as e:
-                logger.error(traceback.format_exc())
-                logger.error("点歌发生错误" + str(e))
+                logger.error(f"发送选歌消息失败: {e}")
+                selection_message_id = None
+
+            # Store pending selection for this conversation
+            self._pending_selections[session_key] = {
+                'songs': songs,
+                'player': player,
+                'modes': None,
+                'timestamp': time.time(),
+                'selection_message_id': selection_message_id,
+            }
 
         event.stop_event()
+
+    def _clean_expired_selections(self):
+        """Remove expired pending selections."""
+        now = time.time()
+        expired = [
+            key for key, data in self._pending_selections.items()
+            if now - data['timestamp'] > self.cfg.timeout
+        ]
+        for key in expired:
+            logger.debug(f"清理过期的点歌会话: {key}")
+            del self._pending_selections[key]
 
     @filter.llm_tool()
     async def play_song_by_name(self, event: AstrMessageEvent, song_name: str):

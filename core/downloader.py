@@ -1,7 +1,6 @@
 import asyncio
 import shutil
 import uuid
-from dataclasses import dataclass, field
 from pathlib import Path
 
 import aiofiles
@@ -12,21 +11,14 @@ from astrbot.api import logger
 from .config import PluginConfig
 
 
-@dataclass
-class _DownloadTask:
-    url: str
-    future: asyncio.Future = field(default_factory=lambda: asyncio.get_running_loop().create_future())
-
-
 class Downloader:
     def __init__(self, config: PluginConfig):
         self.cfg = config
         self.songs_dir = self.cfg.songs_dir
         self.session: aiohttp.ClientSession | None = None
-        self._queue: asyncio.Queue[_DownloadTask] = asyncio.Queue()
-        self._worker_task: asyncio.Task | None = None
         self._cache: dict[str, Path] = {}
         self._pending: dict[str, asyncio.Future] = {}
+        self._tasks: set[asyncio.Task] = set()
 
     async def initialize(self):
         timeout = aiohttp.ClientTimeout(total=60)
@@ -35,12 +27,14 @@ class Downloader:
             self._ensure_cache_dir()
 
     async def terminate(self):
-        if self._worker_task:
-            self._worker_task.cancel()
+        for task in self._tasks:
+            task.cancel()
+        for task in self._tasks:
             try:
-                await self._worker_task
-            except asyncio.CancelledError:
+                await task
+            except (asyncio.CancelledError, Exception):
                 pass
+        self._tasks.clear()
         if self.session:
             await self.session.close()
 
@@ -54,35 +48,18 @@ class Downloader:
         self._cache.clear()
         logger.debug(f"缓存目录已重建：{self.songs_dir}")
 
-    async def _worker_loop(self):
+    async def _run_download(self, url: str, future: asyncio.Future):
         try:
-            while True:
-                task = await self._queue.get()
-                try:
-                    result = await self._do_download(task.url)
-                    if result:
-                        self._cache[task.url] = result
-                    if not task.future.done():
-                        task.future.set_result(result)
-                except Exception as e:
-                    if not task.future.done():
-                        task.future.set_exception(e)
-                finally:
-                    self._pending.pop(task.url, None)
-                    if not task.future.done():
-                        task.future.cancel()
-                    self._queue.task_done()
-        except asyncio.CancelledError:
-            while not self._queue.empty():
-                try:
-                    task = self._queue.get_nowait()
-                    self._pending.pop(task.url, None)
-                    if not task.future.done():
-                        task.future.cancel()
-                    self._queue.task_done()
-                except asyncio.QueueEmpty:
-                    break
-            raise
+            result = await self._do_download(url)
+            if result:
+                self._cache[url] = result
+            if not future.done():
+                future.set_result(result)
+        except Exception as e:
+            if not future.done():
+                future.set_exception(e)
+        finally:
+            self._pending.pop(url, None)
 
     def enqueue(self, url: str) -> tuple[asyncio.Future, int]:
         """将下载任务加入队列，返回 (future, 位置)。位置=0表示缓存/待处理命中，>0表示排队位置。"""
@@ -94,18 +71,17 @@ class Downloader:
         if url in self._pending:
             return self._pending[url], 0
 
-        if self._worker_task is None:
-            self._worker_task = asyncio.create_task(self._worker_loop())
-
-        task = _DownloadTask(url)
-        self._pending[url] = task.future
-        position = self._queue.qsize() + 1
-        self._queue.put_nowait(task)
-        return task.future, position
+        future = asyncio.get_running_loop().create_future()
+        self._pending[url] = future
+        position = len(self._pending)
+        task = asyncio.create_task(self._run_download(url, future))
+        self._tasks.add(task)
+        task.add_done_callback(self._tasks.discard)
+        return future, position
 
     @property
     def queue_size(self) -> int:
-        """当前队列中的任务数（包括正在处理和等待的）"""
+        """当前正在下载的任务数"""
         return len(self._pending)
 
     async def _do_download(self, url: str) -> Path | None:

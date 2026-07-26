@@ -45,7 +45,11 @@ class MusicPlugin(Star):
             if name:
                 name_ = name.strip().lower()
                 p = player.platform
-                if p.display_name.lower() == name_ or p.name.lower() == name_:
+                if (
+                    p.display_name.lower() == name_
+                    or p.name.lower() == name_
+                    or name_ in (k.lower() for k in p.keywords)
+                ):
                     return player
             elif word:
                 word_ = word.strip().lower()

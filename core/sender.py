@@ -92,9 +92,7 @@ class MusicSender:
             return False
 
         logger.debug(f"正在下载歌曲：{song.audio_url}")
-        future, position = self.downloader.enqueue(song.audio_url)
-        if position > 0:
-            await event.send(event.plain_result(f"已添加到下载队列，当前排第 {position} 位（共 {self.downloader.queue_size} 个任务）"))
+        future, _ = self.downloader.enqueue(song.audio_url)
         try:
             file_path = await future
         except Exception as e:
@@ -188,6 +186,10 @@ class MusicSender:
 
         sent = False
         target_modes = modes if modes is not None else self.cfg.real_send_modes
+
+        await event.send(event.plain_result(
+            f"正在处理…当前队列还有 {self.downloader.queue_size} 个任务"
+        ))
 
         for mode in target_modes:
             if not self._is_mode_supported(mode, event):

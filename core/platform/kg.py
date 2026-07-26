@@ -27,7 +27,7 @@ class KuGouMusic(BaseMusicPlayer):
         result = await self._request(
             url=f"https://songsearch.kugou.com/song_search_v2",
             method="GET",
-            data={
+            params={
                 "keyword": keyword,
                 "page": 1,
                 "pagesize": limit,

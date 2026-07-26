@@ -174,13 +174,18 @@ class MusicPlugin(Star):
             del self._pending_selections[key]
 
     @filter.llm_tool()
-    async def play_song_by_name(self, event: AstrMessageEvent, song_name: str):
+    async def play_song_by_name(
+        self, event: AstrMessageEvent, song_name: str, platform: str = ""
+    ):
         """
         当用户想听歌时，根据歌名（可含歌手）搜索并播放音乐。
         Args:
             song_name(string): 歌曲名称或包含歌手的关键词
+            platform(string): 音源平台，可选值：wy(网易云)、qq(QQ音乐)、kg(酷狗)、kw(酷我)，留空则用默认音源
         """
-        player = self.players[0] if self.players else None
+        player = self.get_player(name=platform) if platform else None
+        if not player:
+            player = self.players[0] if self.players else None
         if not player:
             return "无可用播放器"
         songs = await player.fetch_songs(keyword=song_name, limit=1)

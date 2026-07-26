@@ -117,7 +117,7 @@ class Downloader:
                     logger.error(f"歌曲下载失败，HTTP 状态码：{response.status}")
                     return None
                 async with aiofiles.open(file_path, "wb") as f:
-                    async for chunk in response.content.iter_chunked(1024):
+                    async for chunk in response.content.iter_chunked(262144):
                         await f.write(chunk)
 
             logger.debug(f"歌曲下载完成，保存在：{file_path}")

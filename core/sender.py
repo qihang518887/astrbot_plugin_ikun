@@ -187,9 +187,13 @@ class MusicSender:
         sent = False
         target_modes = modes if modes is not None else self.cfg.real_send_modes
 
-        await event.send(event.plain_result(
-            f"正在处理…当前队列还有 {self.downloader.queue_size} 个任务"
-        ))
+        queue_size = self.downloader.queue_size
+        if queue_size > 0:
+            await event.send(event.plain_result(
+                f"正在处理…当前队列还有 {queue_size} 个任务"
+            ))
+        else:
+            await event.send(event.plain_result("任务收到，正在处理"))
 
         for mode in target_modes:
             if not self._is_mode_supported(mode, event):

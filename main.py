@@ -10,6 +10,7 @@ from .core.config import PluginConfig
 from .core.downloader import Downloader
 from .core.platform import BaseMusicPlayer
 from .core.sender import MusicSender
+from .core.utils import parse_send_mode, parse_user_input
 
 
 class MusicPlugin(Star):
@@ -75,32 +76,38 @@ class MusicPlugin(Star):
 
         # ── Case 1: User is selecting a song by number ──
         pending = self._pending_selections.get(session_key)
-        if pending and msg.isdigit():
-            # Check if pending selection has expired
-            if time.time() - pending['timestamp'] > self.cfg.timeout:
+        if pending:
+            index, modes, error = parse_user_input(msg)
+            if error:
+                yield event.plain_result(error)
+                event.stop_event()
+                return
+            if index > 0:
+                # Check if pending selection has expired
+                if time.time() - pending['timestamp'] > self.cfg.timeout:
+                    del self._pending_selections[session_key]
+                    yield event.plain_result("点歌超时！请重新搜索歌曲")
+                    event.stop_event()
+                    return
+                if index < 1 or index > len(pending['songs']):
+                    yield event.plain_result(f"序号无效，请输入 1-{len(pending['songs'])}")
+                    event.stop_event()
+                    return
+                selected_song = pending['songs'][index - 1]
                 del self._pending_selections[session_key]
-                yield event.plain_result("点歌超时！请重新搜索歌曲")
+                logger.debug(f"用户选择了第 {index} 首歌曲: {selected_song.name}")
+                target_modes = modes or pending.get('modes')
+                await self.sender.send_song(
+                    event, pending['player'], selected_song,
+                    modes=target_modes
+                )
+                if pending.get('selection_message_id') and self.cfg.timeout_recall:
+                    try:
+                        await event.bot.delete_msg(message_id=pending['selection_message_id'])
+                    except Exception as e:
+                        logger.error(f"撤回选歌消息失败: {e}")
                 event.stop_event()
                 return
-            index = int(msg)
-            if index < 1 or index > len(pending['songs']):
-                yield event.plain_result(f"序号无效，请输入 1-{len(pending['songs'])}")
-                event.stop_event()
-                return
-            selected_song = pending['songs'][index - 1]
-            del self._pending_selections[session_key]
-            logger.debug(f"用户选择了第 {index} 首歌曲: {selected_song.name}")
-            await self.sender.send_song(
-                event, pending['player'], selected_song,
-                modes=pending.get('modes')
-            )
-            if pending.get('selection_message_id') and self.cfg.timeout_recall:
-                try:
-                    await event.bot.delete_msg(message_id=pending['selection_message_id'])
-                except Exception as e:
-                    logger.error(f"撤回选歌消息失败: {e}")
-            event.stop_event()
-            return
 
         # ── Case 2: Song search command ──
         if not re.match(r"^(wy|qq|kg|kw)\s+", msg):
@@ -179,13 +186,19 @@ class MusicPlugin(Star):
 
     @filter.llm_tool()
     async def play_song_by_name(
-        self, event: AstrMessageEvent, song_name: str, platform: str = ""
+        self,
+        event: AstrMessageEvent,
+        song_name: str,
+        platform: str = "",
+        send_mode: str = "",
+        **kwargs,
     ):
         """
-        当用户想听歌时，根据歌名（可含歌手）搜索并播放音乐。
+        当用户想听歌或点歌时，根据歌名（可含歌手）搜索并播放音乐。支持指定是发语音还是发文件。
         Args:
             song_name(string): 歌曲名称或包含歌手的关键词
             platform(string): 音源平台，可选值：wy(网易云)、qq(QQ音乐)、kg(酷狗)、kw(酷我)，留空则用默认音源
+            send_mode(string): 发送模式/方式，可选值：record(发送语音/语音条)、file(发送音频文件/MP3文件)，留空则按默认配置发送
         """
         player = self.get_player(name=platform) if platform else None
         if not player:
@@ -195,4 +208,7 @@ class MusicPlugin(Star):
         songs = await player.fetch_songs(keyword=song_name, limit=1)
         if not songs:
             return "没找到相关歌曲"
-        await self.sender.send_song(event, player, songs[0])
+
+        mode_input = send_mode or kwargs.get("mode") or kwargs.get("send_type") or ""
+        modes = parse_send_mode(mode_input)
+        await self.sender.send_song(event, player, songs[0], modes=modes)
